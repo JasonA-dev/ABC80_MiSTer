@@ -217,7 +217,7 @@ localparam CONF_STR = {
 	"P1-, -= Options in page 1 =-;",
 	"P1-;",
 	"P1O[5],Option 1-1,Off,On;",
-	"d0P1F1,BIN;",
+	"d0P1F1,BAC;",
 	"H0P1O[10],Option 1-2,Off,On;",
 	"-;",
 	"P2,Test Page 2;",
@@ -241,6 +241,31 @@ wire   [1:0] buttons;
 wire [127:0] status;
 wire  [10:0] ps2_key;
 
+reg         key_strobe;
+wire        key_pressed;
+wire        key_extended;
+wire  [7:0] key_code;
+wire        upcase;
+
+assign key_extended = ps2_key[8];
+assign key_pressed  = ps2_key[9];
+assign key_code     = ps2_key[7:0];
+
+always @(posedge clk_24) begin
+    reg old_state;
+    old_state <= ps2_key[10];
+
+    if(old_state != ps2_key[10]) begin
+       key_strobe <= ~key_strobe;
+    end
+end
+
+wire         ioctl_download;
+wire   [7:0] ioctl_index;
+wire         ioctl_wr;
+wire  [24:0] ioctl_addr;
+wire   [7:0] ioctl_dout;
+
 hps_io #(.CONF_STR(CONF_STR)) hps_io
 (
 	.clk_sys(clk_sys),
@@ -254,7 +279,13 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.status(status),
 	.status_menumask({status[5]}),
 	
-	.ps2_key(ps2_key)
+	.ps2_key(ps2_key),
+
+	.ioctl_download(ioctl_download),
+	.ioctl_addr(ioctl_addr),
+	.ioctl_dout(ioctl_dout),
+	.ioctl_wr(ioctl_wr),
+	.ioctl_index(ioctl_index)
 );
 
 ///////////////////////   CLOCKS   ///////////////////////////////
@@ -278,7 +309,34 @@ wire VSync;
 wire ce_pix;
 wire [7:0] video;
 
+ABC80 abc80 (
+	.RESET(reset),
+	.CLK12(clk_sys),
+	.HSYNC(HSync),
+	.VSYNC(VSync),
+	.HBLANK(HBlank),
+	.VBLANK(VBlank),
+	.VIDEO(video),
+	.AUDIO(AUDIO),
+	.CASS_IN(cass_in),
+	.CASS_OUT(CASS_OUT),
+	.CASS_CTRL(UART_TX),
+	.XMEM(1'b0),
 
+	.KEY_STROBE(key_strobe),
+	.KEY_PRESSED(key_pressed),
+	.KEY_EXTENDED(key_extended),
+	.KEY_CODE(key_code),
+	.UPCASE(upcase),
+
+	.DL(ioctl_download),
+	.DL_CLK(clk_sys),
+	.DL_ADDR(ioctl_addr),
+	.DL_DATA(ioctl_dout),
+	.DL_WE(ioctl_wr),
+	.DL_ROM(ioctl_index == 0),
+	.DL_ALT(ioctl_index == 1)
+);
 
 assign CLK_VIDEO = clk_sys;
 assign CE_PIXEL = ce_pix;
