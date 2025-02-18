@@ -1,5 +1,5 @@
 
-module mycore
+module ABC80
 (
 	input         clk,
 	input         reset,

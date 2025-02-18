@@ -206,7 +206,7 @@ assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
 
 `include "build_id.v" 
 localparam CONF_STR = {
-	"MyCore;;",
+	"ABC80;;",
 	"-;",
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[2],TV Mode,NTSC,PAL;",
@@ -278,23 +278,7 @@ wire VSync;
 wire ce_pix;
 wire [7:0] video;
 
-mycore mycore
-(
-	.clk(clk_sys),
-	.reset(reset),
-	
-	.pal(status[2]),
-	.scandouble(forced_scandoubler),
 
-	.ce_pix(ce_pix),
-
-	.HBlank(HBlank),
-	.HSync(HSync),
-	.VBlank(VBlank),
-	.VSync(VSync),
-
-	.video(video)
-);
 
 assign CLK_VIDEO = clk_sys;
 assign CE_PIXEL = ce_pix;
