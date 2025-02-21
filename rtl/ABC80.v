@@ -300,24 +300,53 @@ tv80s T80 (
 	.dout(cpu_dout)
 );
 
-reg   [7:0] rom[16384];
+//// ROM /////////////////////////////////////////////////
 reg   [7:0] rom_dout;
-always @(posedge CLK12) begin : ROM
-	rom_dout <= rom[cpu_addr[13:0]];
-end
-always @(posedge DL_CLK) begin : ROM_DL
-	if (DL_WE & DL_ROM & DL_ADDR[15:14] == 0) rom[DL_ADDR[13:0]] <= DL_DATA;
-end
 
-reg   [7:0] ram[16384];
+dpram #(8, 14) rom
+(
+	.clock_a(DL_CLK),
+	.address_a(DL_ADDR[13:0]),
+	.wren_a(DL_WE & DL_ROM & DL_ADDR[15:14] == 0),
+	.data_a(DL_DATA),
+	.q_a(),
+
+	.clock_b(CLK12),
+	.wren_b(),
+	.address_b(cpu_addr[13:0]),
+	.data_b(),
+	.q_b(rom_dout)
+);
+
+//// RAM /////////////////////////////////////////////////
+
 reg   [7:0] ram_dout;
 wire        ram_we = rams & ~mreq_n & ~wr_n;
-reg  [15:0] start_addr;
 
-always @(posedge CLK12) begin : RAM
-	ram_dout <= ram[cpu_addr[13:0]];
-	if (ram_we) ram[cpu_addr[13:0]] <= cpu_dout;
-end
+reg        loader_ram_we;
+reg [13:0] loader_ram_addr;
+reg [7:0]  loader_ram_data;
+
+dpram #(8, 14) ram
+(
+   // --- CPU side (port A) ---
+   .clock_a   (CLK12),
+   .address_a (cpu_addr[13:0]),
+   .wren_a    (ram_we),
+   .data_a    (cpu_dout),
+   .q_a       (ram_dout),
+
+   // --- Loader side (port B) ---
+   .clock_b   (DL_CLK),
+   .wren_b    (loader_ram_we),
+   .address_b (loader_ram_addr),
+   .data_b    (loader_ram_data),
+   .q_b       ()
+);
+
+//////////////////////////////
+
+reg   [15:0] start_addr;
 
 always @(posedge CLK12) begin
 	if (RESET)
@@ -328,14 +357,33 @@ always @(posedge CLK12) begin
 	end
 end
 
-reg   [7:0] xram[16384];
+//// XRAM /////////////////////////////////////////////////
+
 reg   [7:0] xram_dout;
 wire        xram_we = xrams & ~mreq_n & ~wr_n;
-always @(posedge CLK12) begin : XRAM
-	xram_dout <= xram[cpu_addr[13:0]];
-	if (xram_we) xram[cpu_addr[13:0]] <= cpu_dout;
-end
 
+reg        loader_xram_we;
+reg [13:0] loader_xram_addr;
+reg [7:0]  loader_xram_data;
+
+dpram #(8, 14) xram
+(
+   // --- CPU side (port A) ---
+   .clock_a   (CLK12),
+   .address_a (cpu_addr[13:0]),
+   .wren_a    (xram_we),
+   .data_a    (cpu_dout),
+   .q_a       (xram_dout),
+
+   // --- Loader side (port B) ---
+   .clock_b   (DL_CLK),
+   .wren_b    (loader_xram_we),
+   .address_b (loader_xram_addr),
+   .data_b    (loader_xram_data),
+   .q_b       ()
+);
+
+//////////////////////////////
 // BAC loading
 localparam [15:0] EOFA = 16'hFE1E;
 localparam [15:0] HEAD = 16'hFE20;
@@ -362,6 +410,11 @@ end
 always @(posedge DL_CLK) begin : RAM_DL
 	reg dl_d;
 	dl_d <= DL;
+
+	// Default: no write on each clock
+    loader_ram_we <= 1'b0;
+    loader_xram_we <= 1'b0;
+
 	if (~dl_d & DL) begin
 		linepos <= 1;
 		dl_allow <= 1;
@@ -369,9 +422,20 @@ always @(posedge DL_CLK) begin : RAM_DL
 		inject <= 0;
 		dl_skip <= 0;
 	end
+
 	if (dl_wr | inject) begin
-		if (wraddr[15:14] == 2'b11)  ram[wraddr[13:0]] <= wr_data;
-		if (wraddr[15:14] == 2'b10) xram[wraddr[13:0]] <= wr_data;
+		// RAM
+		if (wraddr[15:14] == 2'b11) begin
+        	loader_ram_we   <= 1'b1;               
+        	loader_ram_addr <= wraddr[13:0];
+        	loader_ram_data <= wr_data;
+      	end
+		// XRAM
+      	if (wraddr[15:14] == 2'b10) begin
+        	loader_xram_we   <= 1'b1;
+        	loader_xram_addr <= wraddr[13:0];
+        	loader_xram_data <= wr_data;
+      	end
 		wraddr <= wraddr + 1'd1;
 	end
 
