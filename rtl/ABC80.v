@@ -118,13 +118,9 @@ always @(posedge CLK12) begin
 	if (cen6) begin
 		cnt_h5 <= cnt_h5 + 1'd1;
 		if (cnt_h5 == 15) begin
-			cnt_h5 <= 0;
+			cnt_h5 <= 10;
 			hcnt <= hcnt + 1'd1;
-			if (hcnt == 63) begin
-				hcnt <= 0;
-				vcnt <= vcnt + 1'd1;
-				if (vcnt == 287) vcnt <= 0;
-			end
+			if (hcnt[5:0] == 6'b111111) vcnt <= vcnt + 1'd1;
 		end
 		if (cnt_clr) begin
 			hcnt <= 0;

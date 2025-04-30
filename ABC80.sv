@@ -356,6 +356,7 @@ ABC80 abc80 (
 assign CLK_VIDEO = clk_sys;
 assign CE_PIXEL = ce_pix;
 
+// Restore direct VGA assignments
 assign VGA_DE = ~(HBlank | VBlank);
 assign VGA_HB = HBlank;
 assign VGA_VB = VBlank;
