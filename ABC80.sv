@@ -208,6 +208,7 @@ assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
 localparam CONF_STR = {
 	"ABC80;;",
 	"-;",
+	"F1,BAS,Load BAS;",
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[2],TV Mode,NTSC,PAL;",
 	"O[4:3],Noise,White,Red,Green,Blue;",
@@ -251,7 +252,7 @@ assign key_extended = ps2_key[8];
 assign key_pressed  = ps2_key[9];
 assign key_code     = ps2_key[7:0];
 
-always @(posedge clk_24) begin
+always @(posedge clk_sys) begin
     reg old_state;
     old_state <= ps2_key[10];
 
@@ -298,7 +299,14 @@ pll pll
 	.outclk_0(clk_sys)
 );
 
-wire reset = RESET | status[0] | buttons[1];
+// Reset logic
+reg rom_loaded = 0;
+always @(posedge clk_sys) begin
+    reg ioctl_downlD;
+    ioctl_downlD <= ioctl_download;
+    if (ioctl_downlD & ~ioctl_download) rom_loaded <= 1;
+    reset <= RESET | ~rom_loaded | status[0] | buttons[1];;
+end
 
 wire [1:0] col = status[4:3];
 
@@ -306,8 +314,15 @@ wire HBlank;
 wire HSync;
 wire VBlank;
 wire VSync;
-wire ce_pix;
+reg [1:0] ce_cnt;
+reg ce_pix;
+always @(posedge clk_sys) begin
+    ce_cnt <= ce_cnt + 1'd1;
+    ce_pix <= &ce_cnt;
+end
 wire [7:0] video;
+
+wire UART_TX;
 
 ABC80 abc80 (
 	.RESET(reset),
@@ -342,14 +357,14 @@ assign CLK_VIDEO = clk_sys;
 assign CE_PIXEL = ce_pix;
 
 assign VGA_DE = ~(HBlank | VBlank);
+assign VGA_HB = HBlank;
+assign VGA_VB = VBlank;
 assign VGA_HS = HSync;
 assign VGA_VS = VSync;
-assign VGA_G  = (!col || col == 2) ? video : 8'd0;
-assign VGA_R  = (!col || col == 1) ? video : 8'd0;
-assign VGA_B  = (!col || col == 3) ? video : 8'd0;
 
-reg  [26:0] act_cnt;
-always @(posedge clk_sys) act_cnt <= act_cnt + 1'd1; 
-assign LED_USER    = act_cnt[26]  ? act_cnt[25:18]  > act_cnt[7:0]  : act_cnt[25:18]  <= act_cnt[7:0];
+// VGA = White if "video" is 1, else black
+assign VGA_R = video ? 6'h3F : 6'h00; 
+assign VGA_G = video ? 6'h3F : 6'h00; 
+assign VGA_B = video ? 6'h3F : 6'h00; 
 
 endmodule

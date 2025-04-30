@@ -117,10 +117,14 @@ always @(posedge CLK12) begin
 
 	if (cen6) begin
 		cnt_h5 <= cnt_h5 + 1'd1;
-		if (chr_en) begin
-			cnt_h5 <= 10;
+		if (cnt_h5 == 15) begin
+			cnt_h5 <= 0;
 			hcnt <= hcnt + 1'd1;
-			if (hcnt[5:0] == 6'b111111) vcnt <= vcnt + 1'd1;
+			if (hcnt == 63) begin
+				hcnt <= 0;
+				vcnt <= vcnt + 1'd1;
+				if (vcnt == 287) vcnt <= 0;
+			end
 		end
 		if (cnt_clr) begin
 			hcnt <= 0;
@@ -301,7 +305,7 @@ tv80s T80 (
 );
 
 //// ROM /////////////////////////////////////////////////
-reg   [7:0] rom_dout;
+wire  [7:0] rom_dout;
 
 dpram #(8, 14) rom
 (
@@ -318,159 +322,7 @@ dpram #(8, 14) rom
 	.q_b(rom_dout)
 );
 
-//// RAM /////////////////////////////////////////////////
-
-reg   [7:0] ram_dout;
-wire        ram_we = rams & ~mreq_n & ~wr_n;
-
-reg        loader_ram_we;
-reg [13:0] loader_ram_addr;
-reg [7:0]  loader_ram_data;
-
-dpram #(8, 14) ram
-(
-   // --- CPU side (port A) ---
-   .clock_a   (CLK12),
-   .address_a (cpu_addr[13:0]),
-   .wren_a    (ram_we),
-   .data_a    (cpu_dout),
-   .q_a       (ram_dout),
-
-   // --- Loader side (port B) ---
-   .clock_b   (DL_CLK),
-   .wren_b    (loader_ram_we),
-   .address_b (loader_ram_addr),
-   .data_b    (loader_ram_data),
-   .q_b       ()
-);
-
-//////////////////////////////
-
-reg   [15:0] start_addr;
-
-always @(posedge CLK12) begin
-	if (RESET)
-		start_addr <= 16'hc000;
-	else begin
-		if (~mreq_n & ~wr_n & cpu_addr == 16'hfe1c) start_addr[ 7:0] <= cpu_dout;
-		if (~mreq_n & ~wr_n & cpu_addr == 16'hfe1d) start_addr[15:8] <= cpu_dout;
-	end
-end
-
-//// XRAM /////////////////////////////////////////////////
-
-reg   [7:0] xram_dout;
-wire        xram_we = xrams & ~mreq_n & ~wr_n;
-
-reg        loader_xram_we;
-reg [13:0] loader_xram_addr;
-reg [7:0]  loader_xram_data;
-
-dpram #(8, 14) xram
-(
-   // --- CPU side (port A) ---
-   .clock_a   (CLK12),
-   .address_a (cpu_addr[13:0]),
-   .wren_a    (xram_we),
-   .data_a    (cpu_dout),
-   .q_a       (xram_dout),
-
-   // --- Loader side (port B) ---
-   .clock_b   (DL_CLK),
-   .wren_b    (loader_xram_we),
-   .address_b (loader_xram_addr),
-   .data_b    (loader_xram_data),
-   .q_b       ()
-);
-
-//////////////////////////////
-// BAC loading
-localparam [15:0] EOFA = 16'hFE1E;
-localparam [15:0] HEAD = 16'hFE20;
-
-reg   [15:0] linepos;
-reg          dl_allow, dl_skip;
-reg   [15:0] wraddr, last_addr;
-wire         dl_wr = DL_WE & !DL_ROM & DL_ADDR[15:14] == 0 & DL_ADDR != 0 & dl_allow & !dl_skip;
-reg          inject;
-reg    [1:0] inject_phase;
-reg    [7:0] inject_data;
-wire   [7:0] wr_data = DL ? DL_DATA : inject_data;
-
-wire  [15:0] head_addr = last_addr + 1'd1;
-always @(*) begin
-	case (inject_phase)
-		0: inject_data = last_addr[7:0];
-		1: inject_data = last_addr[15:8];
-		2: inject_data = head_addr[7:0];
-		3: inject_data = head_addr[15:8];
-	endcase
-end
-
-always @(posedge DL_CLK) begin : RAM_DL
-	reg dl_d;
-	dl_d <= DL;
-
-	// Default: no write on each clock
-    loader_ram_we <= 1'b0;
-    loader_xram_we <= 1'b0;
-
-	if (~dl_d & DL) begin
-		linepos <= 1;
-		dl_allow <= 1;
-		wraddr <= start_addr;
-		inject <= 0;
-		dl_skip <= 0;
-	end
-
-	if (dl_wr | inject) begin
-		// RAM
-		if (wraddr[15:14] == 2'b11) begin
-        	loader_ram_we   <= 1'b1;               
-        	loader_ram_addr <= wraddr[13:0];
-        	loader_ram_data <= wr_data;
-      	end
-		// XRAM
-      	if (wraddr[15:14] == 2'b10) begin
-        	loader_xram_we   <= 1'b1;
-        	loader_xram_addr <= wraddr[13:0];
-        	loader_xram_data <= wr_data;
-      	end
-		wraddr <= wraddr + 1'd1;
-	end
-
-	if (DL_WE & !DL_ROM & DL_ADDR == linepos & dl_skip) begin
-		dl_skip <= 0;
-		linepos <= linepos + 1'd1;
-	end
-	if (DL_WE & !DL_ROM & DL_ADDR == linepos & dl_allow & !dl_skip) begin
-		linepos <= linepos + DL_DATA;
-		if (DL_DATA == 1) begin
-			dl_allow <= 0;
-			last_addr <= wraddr;
-		end
-		if (DL_DATA == 0) begin
-			if (linepos[7:0] == 8'hFF || DL_ALT)
-				linepos <= linepos + 1'd1;
-			else begin
-				linepos <= {linepos[15:8], 8'hFF};
-				dl_skip <= 1;
-			end
-			wraddr <= wraddr;
-		end
-	end
-	if (!DL_ROM & ~DL & dl_d) begin
-		inject_phase <= 0;
-		inject <= 1;
-		wraddr <= EOFA;
-	end
-	if (inject) begin
-		inject_phase <= inject_phase + 1'd1;
-		if (inject_phase == 3) inject <= 0;
-	end
-end
-//
-
+//// Memory Interface /////////////////////////////////////////////////
 reg   [3:0] rom_e7_q;
 always @(posedge CLK12) begin
 	rom_e7_q <= rom_e7[{2'b01, cpu_addr[15:10]}];
@@ -480,6 +332,33 @@ wire        xrams = XMEM & !rom_e7_q[0];
 wire        rams  = !rom_e7_q[3];
 wire        vrams = rom_e7_q[2];
 wire        roms  = !rom_e7_q[1];
+
+wire  [7:0] mem_dout;
+wire        mem_we = (rams | xrams) & ~mreq_n & ~wr_n;
+wire [13:0] mem_addr = cpu_addr[13:0];
+
+dpram #(8, 14) memory
+(
+   // --- CPU side (port A) ---
+   .clock_a   (CLK12),
+   .address_a (mem_addr),
+   .wren_a    (mem_we),
+   .data_a    (cpu_dout),
+   .q_a       (mem_dout),
+
+   // --- Loader side (port B) ---
+   .clock_b   (DL_CLK),
+   .wren_b    (loader_ram_we | loader_xram_we),
+   .address_b (loader_ram_we ? loader_ram_addr : loader_xram_addr),
+   .data_b    (loader_ram_we ? loader_ram_data : loader_xram_data),
+   .q_b       ()
+);
+
+// Memory output selection
+assign cpu_din = pio_oe ? pio_dout :
+                 vrams ? vram_q :
+                 roms  ? rom_dout :
+                 mem_dout;
 
 reg   [7:0] vram_q;
 always @(posedge CLK12) begin
@@ -531,13 +410,6 @@ z80_pio z80_pio (
 	.piob_in({tape_in, 7'h3f}),
 	.piob_out(piob_out)
 );
-
-assign cpu_din = pio_oe ? pio_dout :
-                 vrams ? vram_q :
-                 roms  ? rom_dout :
-					  rams  ? ram_dout :
-					  xrams ? xram_dout :
-					  8'h00;
 
 // keyboard
 reg         akd;

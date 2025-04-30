@@ -30,7 +30,7 @@ module dpram #(
     input   wire                        wren_a,
     input   wire    [addr_width_g-1:0]  address_a,
     input   wire    [data_width_g-1:0]  data_a,
-    output  logic   [data_width_g-1:0]  q_a,
+    output  reg   [data_width_g-1:0]  q_a,
 
     // Port B
     input   wire                        ram_cs_b,    
